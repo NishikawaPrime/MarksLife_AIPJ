@@ -1,0 +1,11 @@
+# 先方の実データは入れない
+*.xlsx
+*.xls
+*.csv
+*.pptx
+*.pdf
+*.zip
+*.pkl
+*.json
+!scripts/**/config.example.json
+__pycache__/
