@@ -1,5 +1,6 @@
 import pandas as pd, re, openpyxl, json
 L=pd.read_pickle('/home/claude/oct/c/L.pkl')
+LP=pd.read_pickle('/home/claude/oct/c/LP.pkl')  # 前期（16期）仕訳
 wv=openpyxl.load_workbook('/home/claude/oct/c/out.xlsx',data_only=True)
 pl=wv['PL増減分析']; mt=wv['買取再販まとめ']
 def k(x): return ('△' if x<0 else '')+f"{abs(x)/1000:,.0f}K"
@@ -8,7 +9,8 @@ def key(r):
     p=str(r['partner'] or '').strip(); it=re.sub(r'【[^】]*】','',str(r['item'] or '')).strip(); n=str(r['note'] or '').strip()
     n=re.sub(r'https?://\S+','',n).strip()
     if it=='その他': it=''
-    return p or it or n[:18] or '（摘要なし）'
+    import unicodedata
+    return unicodedata.normalize('NFKC',p or it or n[:18] or '（摘要なし）')
 REV={'業託・紹介料収入','家賃収入','雑収入','受贈益','仲介手数料','その他収入'}
 def breakdown(accts,yms,top=4):
     d=L[L.acct.isin(accts)&L.ym.isin(yms)].copy()
@@ -47,7 +49,7 @@ ACC={'業託・紹介料収入':['業託・紹介料収入'],'家賃収入':['�
  '地代家賃':['地代家賃'],'リース料':['リース料'],'寄付金':['寄付金'],'履行差額（販管費）':['履行差額（販管費）'],'雑収入':['雑収入'],'支払利息':['支払利息'],
  '融資手数料':['融資手数料'],'受贈益':['受贈益']}
 def lab(r): return next((pl.cell(r,c).value for c in (1,2,3,4) if pl.cell(r,c).value),'')
-TAIL='※前期の仕訳がないため前期側の内訳は比較できません。増減の理由：要記入'
+TAIL='増減の理由：要記入'
 def make(r,single):
     l=lab(r); yms=['2026-10'] if single else sorted(L.ym.unique())
     p,c,dd=(pl.cell(r,51).value,pl.cell(r,52).value,pl.cell(r,53).value) if single else (pl.cell(r,56).value,pl.cell(r,57).value,pl.cell(r,58).value)
@@ -55,7 +57,8 @@ def make(r,single):
     if l in ('売上高','売上高（土地）'): return head+'\n'+sales(single)+'\n'+('売上高＝建物部分、売上高（土地）＝土地部分（件数は合計）')
     if l=='不動産取得税':
         d=L[(L.acct=='租税公課')&L.ym.isin(yms)&L.item.fillna('').str.contains('不動産取得税')]
-        return head+f"\n当期から不動産取得税を租税公課（販管費）から売上原価へ振替（{'当月' if single else '累計'} {k(c)}）"
+        pv=LP[(LP.acct=='租税公課')&(LP.ym.isin(['2025-10']) if single else True)&LP.item.str.contains('不動産取得税')].amt.sum()
+        return head+f"\n当期から不動産取得税を租税公課（販管費）から売上原価へ振替（{'当月' if single else '累計'} {k(c)}）。前期は租税公課に計上（{'前期10月' if single else '前期累計'} {k(pv)}）"
     if l=='商品売上原価':
         sp,sc=(pl.cell(8,51).value,pl.cell(8,52).value) if single else (pl.cell(8,56).value,pl.cell(8,57).value)
         return head+f"\n売上（買取再販）{sk((sc-sp))}に伴う増加。原価率 前期{p/sp:.1%}→当期{c/sc:.1%}"
@@ -64,7 +67,7 @@ def make(r,single):
         return head+f"\n粗利率 前期{p/sp:.1%}→当期{c/sc:.1%}（不動産取得税を原価に含めない場合）"
     if l=='賞与引当金繰入':
         x=f"\n当月：決算引当金平準化+117,063K（インセンティブ108,907K、BO賞与8,155K）、感謝手当戻入△3,337K" if single else "\n期首の引当金取崩し（11月△224,463K）後、毎月の平準化繰入で積み増し"
-        return head+x+'\n'+TAIL
+        return head+x+'\n'+yoy(['賞与引当金繰入'],single)+'\n'+TAIL
     if l=='労務費':
         kids=[(lab(i),(pl.cell(i,53) if single else pl.cell(i,58)).value) for i in range(53,62)]
         kids=sorted([x for x in kids if isinstance(x[1],(int,float))],key=lambda x:-abs(x[1]))[:3]
@@ -84,10 +87,23 @@ def make(r,single):
         bd,_=breakdown(ACC[l],yms)
         if bd is None: return head+"\n当期の仕訳なし"+'\n'+TAIL
         s=head+(f"\n当期の主な内訳：{bd}" if len(_)>1 else '')
-        if l=='受贈益': s=head+"\n10月：リブゼ横浜サザンティアラ201号室（土地19,466K・建物12,374K）の受贈 31,840K、ヤンマービル（本社）の内装・設備の譲渡 22,015K（贈与元・経緯：要記入）"
+        if l=='受贈益': return head+"\n10月：リブゼ横浜サザンティアラ201号室（土地19,466K・建物12,374K）の受贈 31,840K、ヤンマービル（本社）の内装・設備の譲渡 22,015K（贈与元・経緯：要記入）"
         s+='\n'+(mom(ACC[l]) if single else monthly_avg(ACC[l]))
         if l=='役員報酬': s+='\n'+('月額 前期5,700K→当期7,650K（改定・増員の内容：要記入）')
         if l=='給料手当': s+='\n'+(f"営業人員 前期{mt['AK5'].value}人→当期{mt['AL5'].value}人" if single else f"営業人員（平均）前期{mt['BS5'].value:.0f}人→当期{mt['BT5'].value:.0f}人")
         if l=='租税公課': s+='\n'+'※当期は不動産取得税を売上原価へ振替（前期は租税公課に含む）'
-        return s+'\n'+TAIL
+        return s+'\n'+yoy(ACC[l],single)+'\n'+TAIL
     return None
+
+def yoy(accts,single):
+    sg=-1 if accts[0] in REV else 1
+    a=L[L.acct.isin(accts)&(L.ym.isin(['2026-10']) if single else True)].copy()
+    b=LP[LP.acct.isin(accts)&(LP.ym.isin(['2025-10']) if single else True)].copy()
+    for x in (a,b): x['k']=x.apply(key,axis=1) if len(x) else []
+    ga=a.groupby('k').amt.sum()*sg if len(a) else pd.Series(dtype=float)
+    gb=b.groupby('k').amt.sum()*sg if len(b) else pd.Series(dtype=float)
+    dd=ga.sub(gb,fill_value=0); dd=dd[dd.abs()>=100000].reindex(dd.abs().sort_values(ascending=False).index).dropna()
+    top=[f"{i} {sk(v)}" for i,v in dd.head(4).items()]
+    gb=gb[gb.abs()>=1000].reindex(gb.abs().sort_values(ascending=False).index).dropna()
+    pre='前期の主な内訳：'+'、'.join(f"{i} {k(v)}" for i,v in gb.head(3).items()) if len(gb) else '前期の計上なし'
+    return pre+('\n前期比の主な増減：'+'、'.join(top) if top else '')

@@ -3,7 +3,7 @@ from board_deck import build
 from board_bs import bs_params
 from cf_loan import cf_lines, inv_gp, sheet_bond
 T='/mnt/user-data/uploads/Downloads/20261016取締役会資料.pptx'
-LOAN='/home/claude/oct/in2/x1.xlsx'; KIN='/home/claude/oct/in2/daicho.csv'
+LOAN='/home/claude/oct/in3/x1b.xlsx'; KIN='/home/claude/oct/in2/daicho.csv'
 b=json.load(open('/home/claude/oct/in2/budget10.json')); budget=dict(m=b['m'],c=b['c'])
 bs=bs_params('n10_5.xlsx',12,'10月',309)
 loan,cash,_=cf_lines(LOAN,'n10_5.xlsx','10月',True,sheet_bond(LOAN))
